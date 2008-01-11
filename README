@@ -1,0 +1,34 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=2120
+
+Take the following date:
+
+1999-12-31
+
+Because Vim treats the hyphen as a negative sign, pressing CTRL-A on the 31 would normally increment it to
+
+1999-12-30
+
+Compare this with what happens when speeddating.vim is installed:
+
+2000-01-01
+
+Pressing 5<C-X> on the 03 in the first line below transforms it into the second:
+
+Sat, 01 Jan 2000 00:00:03 +0000
+Fri, 31 Dec 1999 23:59:58 +0000
+
+Several date, time, and datetime formats are included.  Additional formats can be defined in a strftime-like syntax with the :SpeedDatingFormat command.
+
+Existing VIm semantics are preserved.  CTRL-A and CTRL-X accept a count, and plain number incrementing is used if no date format is matched.
+
+Use of CTRL-A/X in visual mode enables incrementing several lines at once.  Blank spots are filled by incrementing the match from the previous line, allowing for creation of sequences (1, 2, 3; 2000-10-30, 2000-10-31, 2000-11-01).
+
+Can also increment roman numerals and ordinals (1st, 2nd, 3rd, ...).  In visual mode, letters of the alphabet are supported.
+
+d<C-X> sets the timestamp under the cursor to the current time.  d<C-A> does the same, but uses UTC rather than the local time.
+
+The "." command will work as expected if you install repeat.vim, vimscript #2136.
+
+Feedback wanted: speeddating currently supports locale dependent day/month names/abbrevations, but also includes English abbreviation support.  However, most of the built-in formats just use the English version, because it is either mandated by a standard (like RFC 822) or because they are typically used in an international context (like the Last Change: header in Vim scripts).  Is it even worth supporting the locale dependent names at all?  Is anyone actively using them?
+
+http://github.com/tpope/vim-speeddating
