@@ -1,6 +1,6 @@
 " speeddating.vim - Use CTRL-A/X to increment dates, times, and more
 " Maintainer:   Tim Pope
-" Last Change:  Jan 20, 2008
+" Last Change:  2008 Jan 29
 " GetLatestVimScripts: 2120 1 :AutoInstall: speeddating.vim
 
 " Greatly enhanced <C-A>/<C-X>.  Try these keys on various numbers in the
@@ -44,8 +44,11 @@
 " d<C-X>  change the timestamp under the cursor to the current local time
 "
 " Caveats:
-" Completely timezone ignorant.
-" Gregorian calendar always used.
+" - Completely timezone ignorant.
+" - Gregorian calendar always used.
+" - Beginning a format with a digit causes Vim to treat leading digits as a
+"   count instead.  To work around this escape it with %[] instead (e.g.,
+"   %[2]0%0y%0m%0d%* is a decent format for DNS serials).
 
 " Licensed under the same terms as Vim itself.
 
@@ -148,7 +151,7 @@ function! s:increment(increment)
             if repl != ""
                 call s:replaceinline(start,end,repl)
                 call setpos('.',[0,line('.'),start+offset,0])
-                silent! call dot#set("\<Plug>SpeedDating" . (a:increment < 0 ? "Down" : "Up"),a:increment < 0 ? -a:increment : a:increment)
+                silent! call repeat#set("\<Plug>SpeedDating" . (a:increment < 0 ? "Down" : "Up"),a:increment < 0 ? -a:increment : a:increment)
                 return
             endif
         endif
@@ -158,7 +161,7 @@ function! s:increment(increment)
     else
         exe "norm! ".-a:increment."\<C-X>"
     endif
-    silent! call dot#set("\<Plug>SpeedDating" . (a:increment < 0 ? "Down" : "Up"),a:increment < 0 ? -a:increment : a:increment)
+    silent! call repeat#set("\<Plug>SpeedDating" . (a:increment < 0 ? "Down" : "Up"),a:increment < 0 ? -a:increment : a:increment)
 endfunction
 
 " }}}1
@@ -523,10 +526,17 @@ function! s:timestamp(utc,count)
             endif
             call s:replaceinline(start,end,newstring)
             call setpos('.',[0,line('.'),start+strlen(newstring),0])
-            silent! call dot#set("\<Plug>SpeedDatingNow".(a:utc ? "UTC" : "Local"),a:count)
+            silent! call repeat#set("\<Plug>SpeedDatingNow".(a:utc ? "UTC" : "Local"),a:count)
             return ""
         endif
     endfor
+    let [start,end,string;caps] = s:findinline('-\=\<\d\+\>')
+    if string != ""
+        let newstring = localtime() + (a:utc ? 1 : -1) * a:count * 60*15
+        call s:replaceinline(start,end,newstring)
+        call setpos('.',[0,line('.'),start+strlen(newstring),0])
+        silent! call repeat#set("\<Plug>SpeedDatingNow".(a:utc ? "UTC" : "Local"),a:count)
+    endif
 endfunction
 
 function! s:dateincrement(string,offset,increment) dict
@@ -619,10 +629,12 @@ function! s:createtimehandler(format)
             let reader += [item[1]]
             if modifier == '^'
                 let pat = substitute(item[2],'\C\\\@<![[:lower:]]','\u&','g')
-                let regexp += ['\('.pat.'\)']
+            elseif modifier == '0'
+                let pat = substitute(item[2],' \|-\@<!\\=','','g')
             else
-                let regexp += ['\('.item[2].'\)']
+                let pat = item[2]
             endif
+            let regexp += ['\('.pat.'\)']
             let group += 1
             let template .= fragment
             let default .= fragment
@@ -642,12 +654,25 @@ function! s:createtimehandler(format)
             let regexp += ["\\".usergroups[strpart(fragment,1)-1]]
             let template .= regexp[-1]
             let default .= userdefaults[strpart(fragment,1)-1]
+        elseif fragment == '%*'
+            if len(regexp) == 1
+                let regexp = []
+                let targets = []
+            else
+                let regexp += ['\(.*\)']
+            endif
         else
             let regexp += [fragment]
             let template .= fragment
             let default .= fragment
         endif
     endwhile
+    if regexp[-1] == '\(.*\)'
+        call remove(regexp,-1)
+        call remove(targets,-1)
+    else
+        let regexp += ['\>']
+    endif
     return {'source': a:format, 'strftime': template, 'groups': regexp, 'regexp': s:function('s:timeregexp'), 'reader': reader, 'targets': targets, 'default': default, 'increment': s:function('s:dateincrement')}
 endfunction
 
@@ -675,9 +700,11 @@ function! s:adddate(master,count,bang)
             for key in sort(keys(s:strftime_items),s:function("s:comparecase"))
                 echo printf("%2s     %-25s %s",'%'.key,s:strftime_items[key][3],s:strftime('%'.key,localtime()))
             endfor
+            echo '%0x    %x with mandatory leading zeros'
             echo '%_x    %x with spaces rather than leading zeros'
             echo '%-x    %x with no leading spaces or zeros'
             echo '%^x    %x in uppercase'
+            echo '%*     at beginning/end, surpress \</\> respectively'
             echo '%[..]  any one character         \([..]\)'
             echo '%?[..] up to one character       \([..]\=\)'
             echo '%1     character from first collection match \1'
@@ -715,7 +742,10 @@ command! -bar -bang -count=0 -nargs=? SpeedDatingFormat :call s:adddate(<q-args>
 " }}}1
 " Default Formats {{{1
 
+SpeedDatingFormat %a %b %d %H:%M:%S UTC %Y      " default date(1) format
+SpeedDatingFormat %a %b %d %H:%M:%S %[A-Z]%[A-Z]T %Y
 SpeedDatingFormat %i, %d %h %Y %H:%M:%S         " RFC822, sans timezone
+SpeedDatingFormat %i, %h %d, %Y at %I:%M:%S%^P  " mutt default date format
 SpeedDatingFormat %h %_d %H:%M:%S               " syslog
 SpeedDatingFormat %Y-%m-%d%[ T_-]%H:%M:%S%?[Z]  " SQL, etc.
 SpeedDatingFormat %Y-%m-%d
@@ -742,13 +772,12 @@ nnoremap <silent> <Plug>SpeedDatingNowLocal :<C-U>call <SID>timestamp(0,v:count)
 nnoremap <silent> <Plug>SpeedDatingNowUTC   :<C-U>call <SID>timestamp(1,v:count)<CR>
 
 if !exists("g:speeddating_no_mappings") || !g:speeddating_no_mappings
-    map  <C-A>      <Plug>SpeedDatingUp
-    map  <C-X>      <Plug>SpeedDatingDown
+    nmap  <C-A>     <Plug>SpeedDatingUp
+    nmap  <C-X>     <Plug>SpeedDatingDown
+    xmap  <C-A>     <Plug>SpeedDatingUp
+    xmap  <C-X>     <Plug>SpeedDatingDown
     nmap d<C-A>     <Plug>SpeedDatingNowUTC
     nmap d<C-X>     <Plug>SpeedDatingNowLocal
-    " Deprecated
-    nmap <Leader>sn <Plug>SpeedDatingNowLocal
-    nmap <Leader>su <Plug>SpeedDatingNowUTC
 endif
 
 " }}}1
